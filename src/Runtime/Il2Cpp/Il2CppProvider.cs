@@ -159,7 +159,8 @@ namespace UniverseLib.Runtime.Il2Cpp
         private static FieldInfo entityIdDataField;
 
         // Unity 6000 changed Scene.m_Handle from int to SceneHandle { EntityId m_Value { int m_Data } }.
-        // Walk it by reflection so both the old (int) and new (nested struct) layouts resolve to the int handle.
+        // Resolved purely by reflection: a direct Scene.handle reference bakes in Int32 get_handle() and
+        // fails to JIT on Unity 6 with MissingMethodException.
         internal static int GetSceneHandle(Scene scene)
         {
             if (!sceneHandleFieldsResolved)
@@ -174,7 +175,7 @@ namespace UniverseLib.Runtime.Il2Cpp
             }
 
             if (sceneHandleField == null)
-                return scene.handle;
+                return 0;
 
             object raw = sceneHandleField.GetValue(scene);
             if (raw is int intHandle)
