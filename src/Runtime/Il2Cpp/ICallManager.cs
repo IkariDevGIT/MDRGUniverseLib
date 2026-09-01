@@ -117,6 +117,12 @@ public static class ICallManager
         return null;
     }
     /// <summary>
+    /// Returns true if an iCall resolves for exactly this signature. Unlike <see cref="GetICall{T}"/> this
+    /// does not try the Unity 6000 "_Injected" fallback and does not log when the iCall is missing.
+    /// </summary>
+    public static bool HasICall(string signature) => TryResolveICall(signature, out _);
+
+    /// <summary>
     /// Use out parameter modifier, redundant value retrieval can be avoided.
     /// </summary>
     private static bool TryResolveICall(string signature, out IntPtr ptr)

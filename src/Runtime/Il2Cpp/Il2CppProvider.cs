@@ -37,6 +37,11 @@ namespace UniverseLib.Runtime.Il2Cpp
 
         internal delegate int d_GetRootCountInternal(int handle);
 
+        // Unity 6000+ "_Injected" iCalls take the scene handle by ref instead of by value.
+        internal delegate void d_GetRootGameObjectsInternal_Injected(ref int handle, IntPtr list);
+
+        internal delegate int d_GetRootCountInternal_Injected(ref int handle);
+
         protected internal override void OnInitialize()
         {
             new Il2CppTextureHelper();
@@ -101,33 +106,84 @@ namespace UniverseLib.Runtime.Il2Cpp
         /// <inheritdoc/>
         protected internal override GameObject[] Internal_GetRootGameObjects(Scene scene)
         {
-            if (!scene.isLoaded || scene.handle == -1)
+            int sceneHandle = GetSceneHandle(scene);
+            if (!scene.isLoaded || sceneHandle == -1)
             {
                 return [];
             }
 
-            int count = GetRootCount(scene.handle);
+            int count = GetRootCount(sceneHandle);
             if (count < 1)
             {
                 return [];
             }
 
             Il2CppSystem.Collections.Generic.List<GameObject> list = new(count);
-            ICallManager.GetICall<d_GetRootGameObjects>("UnityEngine.SceneManagement.Scene::GetRootGameObjectsInternal")
-                .Invoke(scene.handle, list.Pointer);
+            if (UseInjectedSceneICalls)
+            {
+                ICallManager.GetICall<d_GetRootGameObjectsInternal_Injected>("UnityEngine.SceneManagement.Scene::GetRootGameObjectsInternal_Injected")
+                    .Invoke(ref sceneHandle, list.Pointer);
+            }
+            else
+            {
+                ICallManager.GetICall<d_GetRootGameObjects>("UnityEngine.SceneManagement.Scene::GetRootGameObjectsInternal")
+                    .Invoke(sceneHandle, list.Pointer);
+            }
             return list.ToArray();
         }
 
         /// <inheritdoc/>
-        protected internal override int Internal_GetRootCount(Scene scene) => GetRootCount(scene.handle);
+        protected internal override int Internal_GetRootCount(Scene scene) => GetRootCount(GetSceneHandle(scene));
 
         /// <summary>
         /// Gets the <see cref="Scene.rootCount"/> for the provided scene handle.
         /// </summary>
         protected internal static int GetRootCount(int sceneHandle)
         {
+            if (UseInjectedSceneICalls)
+            {
+                return ICallManager.GetICall<d_GetRootCountInternal_Injected>("UnityEngine.SceneManagement.Scene::GetRootCountInternal_Injected")
+                       .Invoke(ref sceneHandle);
+            }
+
             return ICallManager.GetICall<d_GetRootCountInternal>("UnityEngine.SceneManagement.Scene::GetRootCountInternal")
                    .Invoke(sceneHandle);
+        }
+
+        private static readonly bool UseInjectedSceneICalls =
+            ICallManager.HasICall("UnityEngine.SceneManagement.Scene::GetRootCountInternal_Injected");
+
+        private static bool sceneHandleFieldsResolved;
+        private static FieldInfo sceneHandleField;
+        private static FieldInfo sceneHandleValueField;
+        private static FieldInfo entityIdDataField;
+
+        // Unity 6000 changed Scene.m_Handle from int to SceneHandle { EntityId m_Value { int m_Data } }.
+        // Walk it by reflection so both the old (int) and new (nested struct) layouts resolve to the int handle.
+        internal static int GetSceneHandle(Scene scene)
+        {
+            if (!sceneHandleFieldsResolved)
+            {
+                sceneHandleFieldsResolved = true;
+                sceneHandleField = typeof(Scene).GetField("m_Handle", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (sceneHandleField != null && sceneHandleField.FieldType != typeof(int))
+                {
+                    sceneHandleValueField = sceneHandleField.FieldType.GetField("m_Value", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    entityIdDataField = sceneHandleValueField?.FieldType.GetField("m_Data", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                }
+            }
+
+            if (sceneHandleField == null)
+                return scene.handle;
+
+            object raw = sceneHandleField.GetValue(scene);
+            if (raw is int intHandle)
+                return intHandle;
+            if (raw == null || sceneHandleValueField == null || entityIdDataField == null)
+                return 0;
+
+            object entityId = sceneHandleValueField.GetValue(raw);
+            return entityId == null ? 0 : (int)entityIdDataField.GetValue(entityId);
         }
 
         /// <inheritdoc/>
