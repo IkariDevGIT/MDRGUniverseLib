@@ -1,6 +1,7 @@
 ﻿#if CPP
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using UnityEngine;
@@ -81,10 +82,12 @@ public class AssetBundle : UnityEngine.Object
     public static AssetBundle? LoadFromMemory(byte[] binary, uint crc = 0)
     {
         var il2cppArray = new Il2CppStructArray<byte>(binary);
-        var ptr = ICallManager.GetICallUnreliable<d_LoadFromMemory>(
+        var loadFromMemory = ICallManager.GetICallUnreliable<d_LoadFromMemory>(
             "UnityEngine.AssetBundle::LoadFromMemory_Internal",
-            "UnityEngine.AssetBundle::LoadFromMemory")
-        ?.Invoke(il2cppArray.Pointer, crc);
+            "UnityEngine.AssetBundle::LoadFromMemory");
+        IntPtr? ptr = loadFromMemory != null && IsNativeCode(Marshal.GetFunctionPointerForDelegate(loadFromMemory))
+            ? loadFromMemory(il2cppArray.Pointer, crc)
+            : null;
 
         if (ptr.HasValue && ptr.Value != IntPtr.Zero)
         {
@@ -107,6 +110,19 @@ public class AssetBundle : UnityEngine.Object
             ?.Invoke(streamPtr, crc, 0);
 
         return ptr.HasValue && ptr.Value != IntPtr.Zero ? new AssetBundle(ptr.Value) : null;
+    }
+
+    private static bool IsNativeCode(IntPtr address)
+    {
+        long target = address.ToInt64();
+        foreach (ProcessModule module in Process.GetCurrentProcess().Modules)
+        {
+            long start = module.BaseAddress.ToInt64();
+            if (target >= start && target < start + module.ModuleMemorySize)
+                return true;
+        }
+
+        return false;
     }
 
     // AssetBundle.GetAllLoadedAssetBundles()
